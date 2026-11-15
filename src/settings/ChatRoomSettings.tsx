@@ -23,10 +23,11 @@ import { maxTagPlaceholder } from '@/common/maxTagPlaceholder';
 import ParamsGroup from '@/components/ParamsGroup';
 import SystemPromptEditor from '@/components/SystemPromptEditor';
 import { DefaultAvatar } from '@/constant';
-import { AiModels } from '@/constant/ai';
+import { AiModels, ChatProviderOptions, CodexSandboxOptions, ReasoningEffortOptions } from '@/constant/ai';
 import AIDrawingSettingsEditor from './AIDrawingSettingsEditor';
 import AIPodcastConfigEditor from './AIPodcastConfigEditor';
 import TTSettingsEditor from './TTSettingsEditor';
+import { useCodexChatModels } from './useCodexChatModels';
 import { imageRecognitionModelTips, ObjectToString, onTTSEnabledChange } from './utils';
 
 interface IProps {
@@ -36,7 +37,11 @@ interface IProps {
 	onClose: () => void;
 }
 
-type IFormValue = Api.ChatRoomSettings.ChatRoomSettingsCreate.RequestBody;
+type IFormValue = Api.ChatRoomSettings.ChatRoomSettingsCreate.RequestBody & {
+	chat_provider?: string;
+	reasoning_effort?: string;
+	codex_sandbox?: string;
+};
 
 const ChatRoomSettings = (props: IProps) => {
 	const { message } = App.useApp();
@@ -190,7 +195,13 @@ const ChatRoomSettings = (props: IProps) => {
 		await onSave({ ...values, chat_room_id: chatRoom.wechat_id!, config_id: configId, id: props.robotId });
 	};
 
+	const chatProvider = Form.useWatch('chat_provider', form) as string | undefined;
+	const globalProvider = (globalSettings?.data as IFormValue | undefined)?.chat_provider;
+	const isCodexProvider = chatProvider === 'codex_cli' || ((!chatProvider || chatProvider === '') && globalProvider === 'codex_cli');
+	const { options: codexModelOptions, loading: codexModelsLoading } = useCodexChatModels(props.robotId, !!isCodexProvider);
+
 	const applyGlobalSettings = (
+
 		type: 'chat' | 'drawing' | 'tts' | 'welcome' | 'pat' | 'leave_chat_room_alert' | 'all',
 	) => {
 		if (!globalSettings?.data) {
@@ -205,10 +216,13 @@ const ChatRoomSettings = (props: IProps) => {
 			: '{}';
 		const chatSettings: Partial<IFormValue> = {
 			chat_ai_enabled: globalSettings.data.chat_ai_enabled,
+			chat_provider: (globalSettings.data as IFormValue).chat_provider,
 			chat_ai_trigger: globalSettings.data.chat_ai_trigger,
 			chat_base_url: globalSettings.data.chat_base_url,
 			chat_api_key: globalSettings.data.chat_api_key,
 			chat_model: globalSettings.data.chat_model,
+			reasoning_effort: (globalSettings.data as IFormValue).reasoning_effort,
+			codex_sandbox: (globalSettings.data as IFormValue).codex_sandbox,
 			image_recognition_model: globalSettings.data.image_recognition_model,
 			max_completion_tokens: globalSettings.data.max_completion_tokens,
 			chat_prompt: globalSettings.data.chat_prompt,
@@ -431,7 +445,9 @@ const ChatRoomSettings = (props: IProps) => {
 						</Form.Item>
 						<Form.Item
 							noStyle
-							shouldUpdate={(prev: IFormValue, next: IFormValue) => prev.chat_ai_enabled !== next.chat_ai_enabled}
+							shouldUpdate={(prev: IFormValue, next: IFormValue) =>
+								prev.chat_ai_enabled !== next.chat_ai_enabled || prev.chat_provider !== next.chat_provider
+							}
 						>
 							{({ getFieldValue }) => {
 								if (getFieldValue('chat_ai_enabled')) {
@@ -447,6 +463,51 @@ const ChatRoomSettings = (props: IProps) => {
 													allowClear
 												/>
 											</Form.Item>
+											<Form.Item
+												name="chat_provider"
+												label="聊天引擎"
+												tooltip="留空则继承全局设置"
+											>
+												<Select
+													allowClear
+													placeholder="不填则使用全局配置"
+													options={ChatProviderOptions}
+												/>
+											</Form.Item>
+											{getFieldValue('chat_provider') === 'codex_cli' && (
+												<Alert
+													style={{ marginBottom: 10 }}
+													type="info"
+													title="当前群聊覆盖为 Codex CLI。模型列表从 /v1/models 实时拉取；绑定知识库、记忆提取黑名单、触发词仍然生效。"
+												/>
+											)}
+											<Form.Item
+												name="reasoning_effort"
+												label="推理强度"
+												tooltip="留空则继承全局设置"
+											>
+												<Select
+													allowClear
+													placeholder="不填则使用全局配置"
+													options={ReasoningEffortOptions}
+												/>
+											</Form.Item>
+											{(getFieldValue('chat_provider') === 'codex_cli' ||
+												((!getFieldValue('chat_provider') || getFieldValue('chat_provider') === '') &&
+													globalSettings?.data &&
+													(globalSettings.data as IFormValue).chat_provider === 'codex_cli')) && (
+												<Form.Item
+													name="codex_sandbox"
+													label="Codex 沙箱"
+													tooltip="留空则继承全局设置。危险的全盘权限会被服务端降级。"
+												>
+													<Select
+														allowClear
+														placeholder="不填则使用全局配置"
+														options={CodexSandboxOptions}
+													/>
+												</Form.Item>
+											)}
 											<Form.Item
 												name="chat_base_url"
 												label="API地址"
@@ -497,7 +558,8 @@ const ChatRoomSettings = (props: IProps) => {
 												<AutoComplete
 													placeholder="不填则使用全局配置"
 													style={{ width: '100%' }}
-													options={AiModels}
+													options={isCodexProvider ? codexModelOptions : AiModels}
+													notFoundContent={codexModelsLoading ? '正在加载模型列表…' : undefined}
 												/>
 											</Form.Item>
 											<Form.Item

@@ -258,3 +258,13 @@ export const TextEmbeddingDimensions: Array<{ label: string; value: number; text
 ];
 
 export const ImageEmbeddingModels: Array<{ value: string }> = [];
+
+export const ChatProviderOptions = [
+	{ label: 'OpenAI 兼容接口（当前默认）', value: 'openai_compatible' },
+	{ label: 'Codex CLI（Linux）', value: 'codex_cli' },
+];
+
+export const CodexSandboxOptions = [
+	{ label: '只读沙箱（推荐）', value: 'read-only' },
+	{ label: '仅工作区内可写', value: 'workspace-write' },
+];

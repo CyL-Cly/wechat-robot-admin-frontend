@@ -6,7 +6,7 @@ import type * as Api from '@/api/wechat-robot/wechat-robot';
 import type { AnyType } from '@/common/types';
 import ParamsGroup from '@/components/ParamsGroup';
 import SystemPromptEditor from '@/components/SystemPromptEditor';
-import { AiModels, TextEmbeddingDimensions, TextEmbeddingModels } from '@/constant/ai';
+import { AiModels, ChatProviderOptions, CodexSandboxOptions, ReasoningEffortOptions, TextEmbeddingDimensions, TextEmbeddingModels } from '@/constant/ai';
 import {
 	fromCronExpression,
 	generateMondayCronExpression,
@@ -17,13 +17,18 @@ import {
 } from '@/utils';
 import AIDrawingSettingsEditor from './AIDrawingSettingsEditor';
 import TTSettingsEditor from './TTSettingsEditor';
+import { useCodexChatModels, needsOpenAICompatibleCredentials } from './useCodexChatModels';
 import { chatBaseURLTips, imageRecognitionModelTips, ObjectToString, onTTSEnabledChange } from './utils';
 
 interface IProps {
 	robotId: number;
 }
 
-type IFormValue = Api.GlobalSettings.GlobalSettingsCreate.RequestBody;
+type IFormValue = Api.GlobalSettings.GlobalSettingsCreate.RequestBody & {
+	chat_provider?: string;
+	reasoning_effort?: string;
+	codex_sandbox?: string;
+};
 
 const GlobalSettings = (props: IProps) => {
 	const { message } = App.useApp();
@@ -92,6 +97,12 @@ const GlobalSettings = (props: IProps) => {
 					const cronValue = resp.data.chat_room_ranking_month_cron as string;
 					(resp.data as AnyType).chat_room_ranking_month_cron = monthlyCronToDayjs(cronValue);
 				}
+				if (!(resp.data as AnyType).chat_provider) {
+					(resp.data as AnyType).chat_provider = 'openai_compatible';
+				}
+				if (!(resp.data as AnyType).codex_sandbox) {
+					(resp.data as AnyType).codex_sandbox = 'read-only';
+				}
 				form.setFieldsValue(resp?.data || {});
 			},
 			onError: reason => {
@@ -99,6 +110,10 @@ const GlobalSettings = (props: IProps) => {
 			},
 		},
 	);
+
+	const chatProvider = Form.useWatch('chat_provider', form) as string | undefined;
+	const isCodexProvider = chatProvider === 'codex_cli';
+	const { options: codexModelOptions, loading: codexModelsLoading } = useCodexChatModels(props.robotId, !!isCodexProvider);
 
 	const { runAsync: onSave, loading: saveLoading } = useRequest(
 		async (data: Api.GlobalSettings.GlobalSettingsCreate.RequestBody) => {
@@ -213,7 +228,12 @@ const GlobalSettings = (props: IProps) => {
 							</Form.Item>
 							<Form.Item
 								noStyle
-								shouldUpdate={(prev: IFormValue, next: IFormValue) => prev.chat_ai_enabled !== next.chat_ai_enabled}
+								shouldUpdate={(prev: IFormValue, next: IFormValue) =>
+									prev.chat_ai_enabled !== next.chat_ai_enabled ||
+									prev.chat_provider !== next.chat_provider ||
+									prev.memory_enabled !== next.memory_enabled ||
+									prev.chat_room_summary_enabled !== next.chat_room_summary_enabled
+								}
 							>
 								{({ getFieldValue }) => {
 									if (getFieldValue('chat_ai_enabled')) {
@@ -230,9 +250,60 @@ const GlobalSettings = (props: IProps) => {
 													/>
 												</Form.Item>
 												<Form.Item
+													name="chat_provider"
+													label="聊天引擎"
+													tooltip="默认保持现有 OpenAI 兼容接口。选择 Codex CLI 后，聊天走 Linux 宿主上的官方 codex exec。"
+												>
+													<Select
+														options={ChatProviderOptions}
+													/>
+												</Form.Item>
+												{getFieldValue('chat_provider') === 'codex_cli' && (
+													<Alert
+														style={{ marginBottom: 10 }}
+														type="info"
+														title={
+															<>
+																聊天走 Linux 上的官方 <code>codex exec</code>（Sub2API Grok）。模型列表从
+																/v1/models 实时拉取。下面的 API 地址 / API 密钥仍用于记忆提取、向量嵌入、群聊总结等
+																OpenAI 兼容能力。人设、最大回复、触发词、图像识别附件、MCP、Skills 仍然生效。Codex
+																视觉随当前聊天模型，本字段不能单独再选一个视觉模型。
+															</>
+														}
+													/>
+												)}
+												<Form.Item
+													name="reasoning_effort"
+													label="推理强度"
+													tooltip="空则跟随模型默认。选择 Codex CLI 时会传给 model_reasoning_effort。"
+												>
+													<Select
+														allowClear
+														placeholder="跟随模型默认"
+														options={ReasoningEffortOptions}
+													/>
+												</Form.Item>
+												{getFieldValue('chat_provider') === 'codex_cli' && (
+													<Form.Item
+														name="codex_sandbox"
+														label="Codex 沙箱"
+														tooltip="默认只读。危险的全盘权限会被服务端降级为仅工作区内可写，不会传递 --yolo。"
+													>
+														<Select options={CodexSandboxOptions} />
+													</Form.Item>
+												)}
+												<Form.Item
 													name="chat_base_url"
 													label="API地址"
-													rules={[{ required: true, message: 'API地址不能为空' }]}
+													rules={
+														needsOpenAICompatibleCredentials({
+															chat_provider: getFieldValue('chat_provider'),
+															memory_enabled: getFieldValue('memory_enabled'),
+															chat_room_summary_enabled: getFieldValue('chat_room_summary_enabled'),
+														})
+															? [{ required: true, message: 'API地址不能为空' }]
+															: []
+													}
 													tooltip={chatBaseURLTips}
 												>
 													<Input
@@ -243,7 +314,15 @@ const GlobalSettings = (props: IProps) => {
 												<Form.Item
 													name="chat_api_key"
 													label="API密钥"
-													rules={[{ required: true, message: 'API密钥不能为空' }]}
+													rules={
+														needsOpenAICompatibleCredentials({
+															chat_provider: getFieldValue('chat_provider'),
+															memory_enabled: getFieldValue('memory_enabled'),
+															chat_room_summary_enabled: getFieldValue('chat_room_summary_enabled'),
+														})
+															? [{ required: true, message: 'API密钥不能为空' }]
+															: []
+													}
 													tooltip={
 														<>
 															可前往
@@ -277,7 +356,8 @@ const GlobalSettings = (props: IProps) => {
 													<AutoComplete
 														placeholder="请选择或者手动输入聊天模型"
 														style={{ width: '100%' }}
-														options={AiModels}
+														options={getFieldValue('chat_provider') === 'codex_cli' ? codexModelOptions : AiModels}
+														notFoundContent={codexModelsLoading ? '正在加载模型列表…' : undefined}
 													/>
 												</Form.Item>
 												<Form.Item
@@ -294,7 +374,11 @@ const GlobalSettings = (props: IProps) => {
 												<Form.Item
 													name="text_embedding_model"
 													label="文本嵌入模型"
-													rules={[{ required: true, message: '文本嵌入模型不能为空' }]}
+													rules={
+														getFieldValue('chat_provider') === 'codex_cli' && !getFieldValue('memory_enabled')
+															? []
+															: [{ required: true, message: '文本嵌入模型不能为空' }]
+													}
 												>
 													<AutoComplete
 														placeholder="请选择或者手动输入文本嵌入模型"
@@ -305,7 +389,11 @@ const GlobalSettings = (props: IProps) => {
 												<Form.Item
 													name="text_embedding_dimension"
 													label="文本嵌入维度"
-													rules={[{ required: true, message: '文本嵌入维度不能为空' }]}
+													rules={
+														getFieldValue('chat_provider') === 'codex_cli' && !getFieldValue('memory_enabled')
+															? []
+															: [{ required: true, message: '文本嵌入维度不能为空' }]
+													}
 													help={
 														<>
 															<span style={{ color: '#e45c5c' }}>特别注意</span>:
