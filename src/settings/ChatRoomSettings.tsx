@@ -198,7 +198,14 @@ const ChatRoomSettings = (props: IProps) => {
 	const chatProvider = Form.useWatch('chat_provider', form) as string | undefined;
 	const globalProvider = (globalSettings?.data as IFormValue | undefined)?.chat_provider;
 	const isCodexProvider = chatProvider === 'codex_cli' || ((!chatProvider || chatProvider === '') && globalProvider === 'codex_cli');
-	const { options: codexModelOptions, loading: codexModelsLoading } = useCodexChatModels(props.robotId, !!isCodexProvider);
+	const chatBaseURL = Form.useWatch('chat_base_url', form) as string | undefined;
+	const chatAPIKey = Form.useWatch('chat_api_key', form) as string | undefined;
+	const { options: codexModelOptions, loading: codexModelsLoading } = useCodexChatModels(
+		props.robotId,
+		!!isCodexProvider,
+		chatBaseURL,
+		chatAPIKey,
+	);
 
 	const applyGlobalSettings = (
 

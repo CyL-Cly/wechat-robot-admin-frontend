@@ -112,8 +112,15 @@ const GlobalSettings = (props: IProps) => {
 	);
 
 	const chatProvider = Form.useWatch('chat_provider', form) as string | undefined;
+	const chatBaseURL = Form.useWatch('chat_base_url', form) as string | undefined;
+	const chatAPIKey = Form.useWatch('chat_api_key', form) as string | undefined;
 	const isCodexProvider = chatProvider === 'codex_cli';
-	const { options: codexModelOptions, loading: codexModelsLoading } = useCodexChatModels(props.robotId, !!isCodexProvider);
+	const { options: codexModelOptions, loading: codexModelsLoading, error: codexModelsError, refresh: refreshCodexModels } = useCodexChatModels(
+		props.robotId,
+		!!isCodexProvider,
+		chatBaseURL,
+		chatAPIKey,
+	);
 
 	const { runAsync: onSave, loading: saveLoading } = useRequest(
 		async (data: Api.GlobalSettings.GlobalSettingsCreate.RequestBody) => {
@@ -347,10 +354,27 @@ const GlobalSettings = (props: IProps) => {
 													label="聊天模型"
 													rules={[{ required: true, message: '聊天模型不能为空' }]}
 													help={
-														<>
-															<span style={{ color: '#e45c5c' }}>特别注意</span>:
-															提取记忆依赖全局聊天模型，这个模型必须支持结构化输出
-														</>
+														getFieldValue('chat_provider') === 'codex_cli' ? (
+															<>
+																列表根据上面的 API 地址和密钥从 /v1/models 实时拉取。
+																{codexModelsError ? (
+																	<span style={{ color: '#e45c5c' }}> 拉取失败：{codexModelsError.message}</span>
+																) : null}{' '}
+																<a
+																	onClick={e => {
+																		e.preventDefault();
+																		refreshCodexModels();
+																	}}
+																>
+																	重新拉取
+																</a>
+															</>
+														) : (
+															<>
+																<span style={{ color: '#e45c5c' }}>特别注意</span>:
+																提取记忆依赖全局聊天模型，这个模型必须支持结构化输出
+															</>
+														)
 													}
 												>
 													<AutoComplete

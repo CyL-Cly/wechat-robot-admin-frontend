@@ -14,13 +14,28 @@ interface CatalogResponse {
 	};
 }
 
-export const useCodexChatModels = (robotId: number, enabled: boolean) => {
-	const { data, loading, refresh } = useRequest(
+export const useCodexChatModels = (
+	robotId: number,
+	enabled: boolean,
+	chatBaseURL?: string,
+	chatAPIKey?: string,
+) => {
+	const { data, loading, error, refresh } = useRequest(
 		async () => {
-			const resp = await axios.get<CatalogResponse>('/api/v1/codex/models', {
-				params: { id: robotId },
-				withCredentials: true,
-			});
+			const resp = await axios.post<CatalogResponse>(
+				'/api/v1/codex/models',
+				{
+					chat_base_url: chatBaseURL || '',
+					chat_api_key: chatAPIKey || '',
+				},
+				{
+					params: { id: robotId },
+					withCredentials: true,
+				},
+			);
+			if (resp.data?.code && resp.data.code !== 200) {
+				throw new Error(resp.data.message || '拉取模型失败');
+			}
 			const payload = resp.data?.data;
 			const raw = payload?.models ?? [];
 			const ids: string[] = [];
@@ -37,8 +52,9 @@ export const useCodexChatModels = (robotId: number, enabled: boolean) => {
 			return { options, defaultModel: payload?.default_model || 'grok-latest' };
 		},
 		{
-			ready: enabled && robotId > 0,
-			refreshDeps: [robotId, enabled],
+			ready: enabled && robotId > 0 && chatBaseURL !== undefined,
+			refreshDeps: [robotId, enabled, chatBaseURL, chatAPIKey],
+			debounceWait: 400,
 			onError: () => {
 				// Keep the form usable even if the catalog is temporarily down.
 			},
@@ -49,6 +65,7 @@ export const useCodexChatModels = (robotId: number, enabled: boolean) => {
 		options: data?.options ?? [SENTINEL],
 		defaultModel: data?.defaultModel || 'grok-latest',
 		loading,
+		error,
 		refresh,
 	};
 };
